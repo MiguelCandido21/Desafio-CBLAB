@@ -1,141 +1,80 @@
-# 🧠 ERP JSON - Modelagem Relacional para Restaurante
+# Desafio de Engenharia de Dados – Coco Bambu 2025
 
-Este projeto tem como objetivo analisar, documentar e transformar a resposta de um endpoint de ERP (arquivo `ERP.json`) em um modelo relacional em SQL. O cenário refere-se a rede de restaurante, onde cada resposta representa uma **comanda** contendo informações de cliente, itens, taxas e detalhes operacionais.
+## Análise e Modelagem Relacional de Dados de ERP
 
----
-
-## 📄 Sobre o Arquivo ERP.json
-
-A estrutura do arquivo representa os dados de uma comanda de restaurante. Ele contém:
-
-- Metadados do sistema (UTC, loja)
-- Uma ou mais **comandas** com:
-  - Informações de abertura, fechamento, mesa e funcionário
-  - Impostos aplicados
-  - Itens consumidos, incluindo detalhes dos produtos
+Este repositório documenta a solução para o **Desafio 1** proposto pelo **CB-Lab**, focado na análise, modelagem e transformação de dados provenientes de um endpoint de ERP em um formato relacional otimizado para operações de restaurante. A solução foi desenvolvida com base em boas práticas de engenharia de dados, visando escalabilidade, integridade e performance.
 
 ---
 
-## 🗃️ Entidades e Relacionamentos
+### Sobre o Desafio
+
+O desafio consiste em analisar um arquivo `ERP.json`, que representa a resposta de uma API de ERP para uma comanda de restaurante. A partir dele, foram solicitadas as seguintes entregas:
+
+1.  **Descrição do Esquema JSON**: Análise da estrutura hierárquica do arquivo.
+2.  **Transcrição para Tabelas SQL**: Conversão do JSON para um modelo relacional.
+3.  **Justificativa da Abordagem**: Detalhamento técnico das decisões tomadas.
 
 ---
 
-### 🏢 `erp_metadata`
+### Análise do Esquema `ERP.json`
 
-| Campo       | Tipo      | Descrição                                 |
-| ----------- | --------- | ------------------------------------------- |
-| `cur_utc` | TIMESTAMP | Data e hora da geração da resposta da API |
-| `loc_ref` | VARCHAR   | Identificação da loja (ex: "99 CB CB")    |
+O arquivo `ERP.json` estrutura-se em um aninhamento que reflete a complexidade de uma operação de restaurante. A análise revelou as seguintes entidades principais:
 
----
-
-### 🧾 `guest_checks` (Comandas)
-
-| Campo                | Tipo      | Descrição                                  |
-| -------------------- | --------- | -------------------------------------------- |
-| `guest_check_id`   | BIGINT    | ID único da comanda                         |
-| `chk_num`          | INT       | Número visível da comanda                  |
-| `opn_bus_dt`       | DATE      | Data de abertura comercial                   |
-| `opn_utc`          | TIMESTAMP | Data/hora UTC de abertura                    |
-| `opn_lcl`          | TIMESTAMP | Data/hora local de abertura                  |
-| `clsd_bus_dt`      | DATE      | Data de fechamento comercial                 |
-| `clsd_utc`         | TIMESTAMP | Data/hora UTC de fechamento                  |
-| `clsd_lcl`         | TIMESTAMP | Data/hora local de fechamento                |
-| `last_trans_utc`   | TIMESTAMP | Última transação (UTC)                    |
-| `last_trans_lcl`   | TIMESTAMP | Última transação (local)                  |
-| `last_updated_utc` | TIMESTAMP | Última atualização (UTC)                  |
-| `last_updated_lcl` | TIMESTAMP | Última atualização (local)                |
-| `clsd_flag`        | BOOLEAN   | Se a comanda foi fechada                     |
-| `gst_cnt`          | INT       | Número de convidados                        |
-| `sub_ttl`          | DECIMAL   | Subtotal                                     |
-| `non_txbl_sls_ttl` | DECIMAL   | Valor não tributável(gorgeta entre outros) |
-| `chk_ttl`          | DECIMAL   | Total da comanda                             |
-| `dsc_ttl`          | DECIMAL   | Total de descontos                           |
-| `pay_ttl`          | DECIMAL   | Total pago                                   |
-| `bal_due_ttl`      | DECIMAL   | Saldo pendente                               |
-| `rvc_num`          | INT       | Centro de receita                            |
-| `ot_num`           | INT       | Número da ordem de atendimento              |
-| `oc_num`           | INT       | Número da ordem de cobrança                |
-| `tbl_num`          | INT       | Número da mesa                              |
-| `tbl_name`         | VARCHAR   | Nome da mesa                                 |
-| `emp_num`          | INT       | Funcionário responsável(código do func)   |
-| `num_srvc_rd`      | INT       | Número de rodadas de serviço               |
-| `num_chk_prntd`    | INT       | Número de impressões da comanda            |
+* **Metadados da Requisição**: Contém informações sobre a data e hora da extração (`curUTC`) e a identificação da loja (`locRef`).
+* **Comandas (`guestChecks`)**: É a entidade central, um array que armazena múltiplas comandas. Cada comanda agrega:
+    * **Dados Operacionais**: Timestamps de abertura e fechamento, informações da mesa, número de clientes e identificação do funcionário.
+    * **Valores Financeiros**: Subtotal, total, descontos e valores pagos.
+    * **Impostos (`taxes`)**: Um array com os impostos aplicados, incluindo alíquota e valor.
+    * **Itens da Comanda (`detailLines`)**: Um array que detalha cada item, podendo ser um item do menu, um desconto, uma taxa de serviço ou um registro de pagamento.
 
 ---
 
-### 💸 `guest_check_taxes` (Impostos)
+### Modelagem Relacional e Normalização
 
-| Campo              | Tipo    | Descrição                  |
-| ------------------ | ------- | ---------------------------- |
-| `id`             | SERIAL  | ID do imposto (PK)           |
-| `guest_check_id` | BIGINT  | FK para `guest_checks`     |
-| `tax_num`        | INT     | Código do imposto           |
-| `txbl_sls_ttl`   | DECIMAL | Total de vendas tributáveis |
-| `tax_coll_ttl`   | DECIMAL | Valor recolhido              |
-| `tax_rate`       | DECIMAL | Alíquota (%)                |
-| `type`           | INT     | Tipo do imposto              |
+A transformação do JSON para um modelo relacional seguiu os princípios de normalização de dados para garantir a integridade, evitar redundância e otimizar a performance das consultas. A abordagem adotada foi a seguinte:
 
----
+1.  **Primeira Forma Normal (1FN)**: A estrutura aninhada do JSON foi decomposta, eliminando atributos multivalorados. As listas `guestChecks`, `taxes` e `detailLines` foram transformadas em tabelas distintas. Adicionalmente, as informações do funcionário (`employee`), originalmente aninhadas em `guestChecks`, foram extraídas para uma entidade própria, garantindo a atomicidade dos campos.
 
-### 🧾 `guest_check_detail_lines` (Itens da comanda)
+2.  **Segunda Forma Normal (2FN)**: As dependências parciais foram resolvidas. A entidade `guest_check_detail_lines`, por exemplo, foi criada para garantir que cada item da comanda dependa integralmente de sua chave primária (`guest_check_line_item_id`) e não apenas de parte dela.
 
-| Campo                        | Tipo      | Descrição                      |
-| ---------------------------- | --------- | -------------------------------- |
-| `guest_check_line_item_id` | BIGINT    | ID do item (PK)                  |
-| `guest_check_id`           | BIGINT    | FK para `guest_checks`         |
-| `rvc_num`                  | INT       | Revenue Center                   |
-| `dtl_ot_num`               | INT       | Ordem de atendimento             |
-| `dtl_oc_num`               | INT       | Ordem de cobrança               |
-| `line_num`                 | INT       | Linha do item                    |
-| `dtl_id`                   | INT       | ID técnico                      |
-| `detail_utc`               | TIMESTAMP | Hora UTC                         |
-| `detail_lcl`               | TIMESTAMP | Hora local                       |
-| `last_update_utc`          | TIMESTAMP | Última atualização UTC        |
-| `last_update_lcl`          | TIMESTAMP | Última atualização local      |
-| `bus_dt`                   | DATE      | Data comercial                   |
-| `ws_num`                   | INT       | Estação de trabalho            |
-| `dsp_ttl`                  | DECIMAL   | Valor unitário                  |
-| `dsp_qty`                  | INT       | Quantidade exibida               |
-| `agg_ttl`                  | DECIMAL   | Valor total                      |
-| `agg_qty`                  | INT       | Quantidade total                 |
-| `chk_emp_id`               | BIGINT    | ID do funcionário que registrou |
-| `chk_emp_num`              | INT       | Número do funcionário          |
-| `svc_rnd_num`              | INT       | Rodada de serviço               |
-| `seat_num`                 | INT       | Número do assento               |
+3.  **Terceira Forma Normal (3FN)**: As dependências transitivas foram eliminadas. Atributos que não dependiam diretamente da chave primária foram movidos para novas tabelas. Um exemplo é a separação dos subtipos de `detail_lines` (`menu_items`, `discounts`, `service_charges`, `tender_media` e `error_codes`), onde cada um armazena apenas os dados pertinentes ao seu contexto.
+
+O modelo final é composto pelas seguintes entidades principais:
+
+* `erp_metadata`
+* `guest_checks`
+* `employee`
+* `guest_check_taxes`
+* `guest_check_detail_lines`
+* `menu_items`
+* `discounts`
+* `service_charges`
+* `tender_media`
+* `error_codes`
+
+Este design assegura que as operações de `INSERT`, `UPDATE` e `DELETE` sejam realizadas de forma atômica e consistente, além de facilitar a criação de consultas analíticas complexas.
+
+➡️ O **Modelo Conceitual (DER)** e o **script SQL** para a criação do banco de dados podem ser encontrados neste repositório.
 
 ---
 
-### 🍔 `menu_items` (Produtos)
+### Justificativa da Escolha da Tecnologia: PostgreSQL
 
-| Campo                        | Tipo    | Descrição                          |
-| ---------------------------- | ------- | ------------------------------------ |
-| `guest_check_line_item_id` | BIGINT  | FK para `guest_check_detail_lines` |
-| `mi_num`                   | INT     | Código do item do menu              |
-| `mod_flag`                 | BOOLEAN | Item foi modificado?                 |
-| `incl_tax`                 | DECIMAL | Imposto incluso                      |
-| `active_taxes`             | VARCHAR | Impostos aplicados                   |
-| `prc_lvl`                  | INT     | Nível de preço                     |
+Para este desafio, a escolha do SGBD (Sistema de Gerenciamento de Banco de Dados) recaiu sobre o **PostgreSQL**. A decisão foi fundamentada nos seguintes pilares técnicos:
+
+* **Robustez e Confiabilidade**: O PostgreSQL é conhecido por sua arquitetura robusta e conformidade com os padrões ACID (Atomicidade, Consistência, Isolamento e Durabilidade), o que é crucial para sistemas transacionais como os de um ERP de restaurante.
+* **Suporte a Tipos de Dados Avançados**: O suporte nativo a `JSON` e `JSONB` é um diferencial estratégico. Ele permite armazenar o payload original da API de forma íntegra, facilitando a reingestão de dados e auditorias futuras, além de viabilizar consultas híbridas (relacionais e NoSQL) diretamente no banco.
+* **Extensibilidade e Performance**: O PostgreSQL oferece recursos avançados de indexação (como GIN, para dados `JSONB`) e particionamento de tabelas, que são essenciais para otimizar a performance de consultas em grandes volumes de dados, como os gerados por uma cadeia de restaurantes.
+* **Ecossistema e Maturidade**: Por ser um projeto open-source com décadas de desenvolvimento, o PostgreSQL possui uma comunidade ativa, vasta documentação e compatibilidade com as principais ferramentas de BI e ETL do mercado.
 
 ---
 
-## 🔗 Relacionamento entre Entidades
+### Próximos Passos
 
----
-
-## ✅ Conclusão
-
-A modelagem acima foi baseada no princípio de normalização e integridade referencial. Cada entidade foi separada para refletir corretamente as operações de um restaurante, permitindo escalabilidade, auditoria e análise de dados.
-
----
-
-## 📂 Próximos passos
-
-- Criar `CREATE TABLE` SQL com base nesse modelo
-- Inserir dados de exemplo a partir do JSON
-- Armazenar múltiplas respostas no Data Lake com controle de schema (desafio 2)
+* **Desenvolvimento da Pipeline de Ingestão**: Criar um script em Python para consumir o `ERP.json`, aplicar as transformações necessárias e popular o banco de dados PostgreSQL.
+* **Armazenamento no Data Lake (Desafio 2)**: Projetar uma estrutura de pastas no Data Lake para armazenar as respostas da API, com controle de versionamento de schema para lidar com alterações como a renomeação de campos (`guestChecks.taxes` para `guestChecks.taxation`).
+* **Conteinerização**: Utilizar Docker para criar um ambiente de desenvolvimento e produção reproduzível, facilitando o deploy da solução.
 
 ---
 
 > Desenvolvido por: **Miguel Candido**
-> Desafio de Engenharia de Dados – Coco Bambu 2025
