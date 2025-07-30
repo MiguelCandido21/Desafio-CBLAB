@@ -2,7 +2,7 @@
 
 ## Análise e Modelagem Relacional de Dados de ERP
 
-Este repositório documenta a solução para o **Desafio 1** proposto pelo **CB-Lab**, focado na análise, modelagem e transformação de dados provenientes de um endpoint de ERP em um formato relacional otimizado para operações de restaurante. A solução foi desenvolvida com base em boas práticas de engenharia de dados, visando escalabilidade, integridade e performance.
+Este repositório documenta a solução para o **Desafio 1** proposto pelo **CB-Lab**, focado na análise, modelagem e transformação de dados provenientes de um endpoint de ERP em um formato relacional otimizado para operações de restaurante. A solução foi desenvolvida com base em boas práticas de engenharia de dados, visando a criação de um pipeline de ETL robusto, reproduzível e pronto para produção.
 
 ---
 
@@ -24,8 +24,8 @@ O arquivo `ERP.json` estrutura-se em um aninhamento que reflete a complexidade d
 * **Comandas (`guestChecks`)**: É a entidade central, um array que armazena múltiplas comandas. Cada comanda agrega:
     * **Dados Operacionais**: Timestamps de abertura e fechamento, informações da mesa, número de clientes e identificação do funcionário.
     * **Valores Financeiros**: Subtotal, total, descontos e valores pagos.
-    * **Impostos (`taxes`)**: Um array com os impostos aplicados, incluindo alíquota e valor.
-    * **Itens da Comanda (`detailLines`)**: Um array que detalha cada item, podendo ser um item do menu, um desconto, uma taxa de serviço ou um registro de pagamento.
+    * **Impostos (`taxes`)**: Um array com os impostos aplicados.
+    * **Itens da Comanda (`detailLines`)**: Um array que detalha cada item, podendo ser um item do menu, um desconto, uma taxa de serviço, um registro de pagamento ou um código de erro.
 
 ---
 
@@ -35,45 +35,83 @@ A transformação do JSON para um modelo relacional seguiu os princípios de nor
 
 1.  **Primeira Forma Normal (1FN)**: A estrutura aninhada do JSON foi decomposta, eliminando atributos multivalorados. As listas `guestChecks`, `taxes` e `detailLines` foram transformadas em tabelas distintas. Adicionalmente, as informações do funcionário (`employee`), originalmente aninhadas em `guestChecks`, foram extraídas para uma entidade própria, garantindo a atomicidade dos campos.
 
-2.  **Segunda Forma Normal (2FN)**: As dependências parciais foram resolvidas. A entidade `guest_check_detail_lines`, por exemplo, foi criada para garantir que cada item da comanda dependa integralmente de sua chave primária (`guest_check_line_item_id`) e não apenas de parte dela.
+2.  **Segunda Forma Normal (2FN)**: As dependências parciais foram resolvidas. A entidade `detailLine`, por exemplo, foi criada para garantir que cada item da comanda dependa integralmente de sua chave primária (`guestCheckLineItemId`).
 
-3.  **Terceira Forma Normal (3FN)**: As dependências transitivas foram eliminadas. Atributos que não dependiam diretamente da chave primária foram movidos para novas tabelas. Um exemplo é a separação dos subtipos de `detail_lines` (`menu_items`, `discounts`, `service_charges`, `tender_media` e `error_codes`), onde cada um armazena apenas os dados pertinentes ao seu contexto.
+3.  **Terceira Forma Normal (3FN)**: As dependências transitivas foram eliminadas. Atributos que não dependiam diretamente da chave primária foram movidos para novas tabelas. Um exemplo é a separação dos subtipos de `detailLines` (`menuItem`, `discount`, `serviceCharge`, `tenderMedia` e `errorCode`), onde cada um armazena apenas os dados pertinentes ao seu contexto.
 
-O modelo final é composto pelas seguintes entidades principais:
+O modelo final é composto pelas seguintes entidades principais, utilizando `camelCase` para manter fidelidade à origem dos dados:
 
-* `erp_metadata`
-* `guest_checks`
+* `ErpMetadata`
 * `employee`
-* `guest_check_taxes`
-* `guest_check_detail_lines`
-* `menu_items`
-* `discounts`
-* `service_charges`
-* `tender_media`
-* `error_codes`
+* `guestChecks`
+* `tax`
+* `detailLine`
+* `menuItem`
+* `discount`
+* `serviceCharge`
+* `tenderMedia`
+* `errorCode`
 
-Este design assegura que as operações de `INSERT`, `UPDATE` e `DELETE` sejam realizadas de forma atômica e consistente, além de facilitar a criação de consultas analíticas complexas.
+Este design assegura que as operações de `INSERT`, `UPDATE` e `DELETE` sejam realizadas de forma atômica e consistente.
 
-➡️ O **Modelo Conceitual (DER)** e o **script SQL** para a criação do banco de dados podem ser encontrados neste repositório.
+➡️ Para uma descrição detalhada de cada tabela e atributo, consulte o arquivo **[`dicionario-de-dados.md`](./dicionario-de-dados.md)**.
+➡️ O script de criação do banco de dados está disponível em **[`sql/schema.sql`](./sql/schema.sql)**.
+
+---
+
+### Implementação da Solução
+
+A solução foi desenvolvida como um pipeline de ETL (Extração, Transformação e Carga) completo, containerizado com Docker para garantir a portabilidade e a facilidade de execução.
+
+#### 1. Pipeline de ETL com Python (`etl.py`)
+
+Um script em Python foi criado para orquestrar todo o processo:
+* **Extração (Extract)**: O script lê o arquivo `ERP.json` local.
+* **Transformação (Transform)**: Utilizando a biblioteca **Pandas**, o JSON aninhado é normalizado e transformado em múltiplos DataFrames, cada um correspondendo a uma tabela do modelo relacional.
+* **Carga (Load)**: Com a biblioteca **SQLAlchemy**, o script se conecta ao banco de dados PostgreSQL e carrega os DataFrames nas tabelas correspondentes dentro do schema `sql-cblab`. O processo é envolto em uma única transação para garantir a atomicidade.
+
+#### 2. Ambiente Containerizado com Docker
+
+Para atender à recomendação de um código "confortável para colocar em produção", toda a solução foi containerizada:
+* **`Dockerfile`**: Define a imagem da aplicação Python, instalando as dependências e o cliente do PostgreSQL.
+* **`wait-for-it.sh`**: Um script shell robusto foi adicionado para garantir que o contêiner do ETL só inicie sua execução após o banco de dados estar totalmente pronto para aceitar conexões.
+* **`docker-compose.yml`**: Orquestra a subida dos serviços. Ele define dois contêineres:
+    1.  `db`: O serviço do banco de dados **PostgreSQL 16**, com persistência de dados em um volume Docker.
+    2.  `etl`: O serviço da aplicação Python, que depende do `db` e executa o `wait-for-it.sh` seguido do `etl.py`.
+
+---
+
+### Como Executar o Projeto
+
+Com o Docker e o Docker Compose instalados, a execução do projeto é simples e direta.
+
+#### Pré-requisitos
+* Docker
+* Docker Compose
+
+#### Passos para Execução
+
+1.  Clone este repositório para a sua máquina local.
+2.  Abra um terminal na raiz do projeto.
+3.  Execute o seguinte comando para construir as imagens e iniciar os contêineres:
+
+    ```bash
+    docker-compose up --build
+    ```
+4.  O terminal exibirá os logs de ambos os serviços. O script `wait-for-it.sh` aguardará o banco de dados ficar pronto e, em seguida, o script `etl.py` será executado, carregando os dados.
+
+Após a execução, os dados do `ERP.json` estarão persistidos no banco de dados PostgreSQL.
 
 ---
 
 ### Justificativa da Escolha da Tecnologia: PostgreSQL
 
-Para este desafio, a escolha do SGBD (Sistema de Gerenciamento de Banco de Dados) recaiu sobre o **PostgreSQL**. A decisão foi fundamentada nos seguintes pilares técnicos:
+A escolha do **PostgreSQL** foi fundamentada em pilares técnicos que o tornam ideal para este cenário:
 
-* **Robustez e Confiabilidade**: O PostgreSQL é conhecido por sua arquitetura robusta e conformidade com os padrões ACID (Atomicidade, Consistência, Isolamento e Durabilidade), o que é crucial para sistemas transacionais como os de um ERP de restaurante.
-* **Suporte a Tipos de Dados Avançados**: O suporte nativo a `JSON` e `JSONB` é um diferencial estratégico. Ele permite armazenar o payload original da API de forma íntegra, facilitando a reingestão de dados e auditorias futuras, além de viabilizar consultas híbridas (relacionais e NoSQL) diretamente no banco.
-* **Extensibilidade e Performance**: O PostgreSQL oferece recursos avançados de indexação (como GIN, para dados `JSONB`) e particionamento de tabelas, que são essenciais para otimizar a performance de consultas em grandes volumes de dados, como os gerados por uma cadeia de restaurantes.
-* **Ecossistema e Maturidade**: Por ser um projeto open-source com décadas de desenvolvimento, o PostgreSQL possui uma comunidade ativa, vasta documentação e compatibilidade com as principais ferramentas de BI e ETL do mercado.
-
----
-
-### Próximos Passos
-
-* **Desenvolvimento da Pipeline de Ingestão**: Criar um script em Python para consumir o `ERP.json`, aplicar as transformações necessárias e popular o banco de dados PostgreSQL.
-* **Armazenamento no Data Lake (Desafio 2)**: Projetar uma estrutura de pastas no Data Lake para armazenar as respostas da API, com controle de versionamento de schema para lidar com alterações como a renomeação de campos (`guestChecks.taxes` para `guestChecks.taxation`).
-* **Conteinerização**: Utilizar Docker para criar um ambiente de desenvolvimento e produção reproduzível, facilitando o deploy da solução.
+* **Robustez e Confiabilidade**: Conformidade total com os padrões ACID, essencial para dados transacionais.
+* **Suporte a Nomes Sensíveis ao Caso**: A capacidade do PostgreSQL de lidar com nomes de tabelas e colunas em `camelCase` (quando envoltos em aspas) foi crucial para manter a fidelidade 1:1 com os dados da API de origem.
+* **Extensibilidade e Performance**: Recursos avançados de indexação e a capacidade de lidar com tipos de dados complexos como `JSONB` o tornam uma escolha escalável.
+* **Ecossistema e Maturidade**: Vasta documentação, uma comunidade ativa e excelente compatibilidade com ferramentas de BI e ETL.
 
 ---
 

@@ -1,0 +1,32 @@
+# docker-compose.yml
+
+services:
+  db:
+    image: postgres:16
+    container_name: cblab-postgres
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin123
+      POSTGRES_DB: cblab_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./sql/schema.sql:/docker-entrypoint-initdb.d/init.sql
+      - postgres_data:/var/lib/postgresql/data
+
+  etl:
+    build: .
+    container_name: cblab-etl
+    depends_on:
+      - db
+    volumes:
+      - ./data:/app/data
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin123
+      POSTGRES_DB: cblab_db
+      DB_HOST: db
+    command: sh -c "./wait-for-it.sh db && python etl.py"
+
+volumes:
+  postgres_data:
