@@ -7,20 +7,25 @@ import time
 import os
 
 def extract_data(file_path):
+    """Lê e carrega os dados do arquivo JSON."""
     with open(file_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
     return data
 
 def transform_data(data):
+    """Transforma os dados JSON em DataFrames, mantendo os nomes de colunas originais."""
     all_guest_checks_raw = data.get('guestChecks', [])
     if not all_guest_checks_raw:
+        print("Aviso: Nenhuma comanda ('guestChecks') encontrada no arquivo JSON.")
         return None
 
+    # --- Camada de Normalização Bruta ---
     df_metadata = pd.DataFrame([{'curUTC': data['curUTC'], 'locRef': data['locRef']}])
     df_guest_checks_full = pd.json_normalize(all_guest_checks_raw)
     df_taxes_full = pd.json_normalize(all_guest_checks_raw, record_path=['taxes'], meta=['guestCheckId'], errors='ignore')
     df_detail_lines_full = pd.json_normalize(all_guest_checks_raw, record_path=['detailLines'], meta=['guestCheckId'], errors='ignore')
 
+    # --- Preparação das Tabelas Finais (Mantendo Nomes Originais) ---
     df_ErpMetadata = df_metadata.reindex(columns=['curUTC', 'locRef'])
     df_employee = pd.DataFrame(df_guest_checks_full[['empNum']].drop_duplicates()) if 'empNum' in df_guest_checks_full else pd.DataFrame(columns=['empNum'])
     
@@ -49,7 +54,11 @@ def transform_data(data):
             return pd.DataFrame()
         
         relevant_cols = ['guestCheckLineItemId'] + [col for col in prefixed_cols if col in df_full.columns]
-        df = df_full[relevant_cols].dropna(subset=[relevant_cols[1]]).copy()
+        first_data_col = relevant_cols[1] if len(relevant_cols) > 1 else None
+        if not first_data_col:
+             return pd.DataFrame()
+
+        df = df_full[relevant_cols].dropna(subset=[first_data_col]).copy()
         rename_map = {prefixed: original for prefixed, original in zip(prefixed_cols, json_cols)}
         df.rename(columns=rename_map, inplace=True)
         return df
@@ -80,11 +89,14 @@ def load_data(dataframes):
             print("Conexão e transação iniciadas.")
             for table_name in load_order:
                 df = dataframes.get(table_name)
+                # vvvv MUDANÇA PRINCIPAL AQUI vvvv
                 if df is not None and not df.empty:
                     print(f"Carregando dados na tabela: {db_schema}.{table_name}...")
-                    # CORREÇÃO: Passa o nome da tabela com camelCase, sem .lower()
                     df.to_sql(table_name, connection, schema=db_schema, if_exists='append', index=False)
-                    print(f"{len(df)} linhas inseridas em {table_name}.")
+                    print(f"-> SUCESSO: {len(df)} linhas inseridas em {table_name}.")
+                else:
+                    # Log explícito para tabelas sem dados
+                    print(f"Nenhum dado encontrado para a tabela {table_name}. Nenhuma linha inserida.")
             print("COMMIT realizado.")
     except Exception as e:
         print(f"Ocorreu um erro. ROLLBACK realizado. Erro: {e}")
