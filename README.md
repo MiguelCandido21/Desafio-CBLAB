@@ -1,8 +1,8 @@
 # Desafio de Engenharia de Dados – Coco Bambu 2025
 
-## Análise e Modelagem Relacional de Dados de ERP
+## Desafio 1: Análise e Modelagem Relacional de Dados de ERP
 
-Este repositório documenta a solução para o **Desafio 1** proposto pelo **CB-Lab**, focado na análise, modelagem e transformação de dados provenientes de um endpoint de ERP em um formato relacional otimizado para operações de restaurante. A solução foi desenvolvida com base em boas práticas de engenharia de dados, visando a criação de um pipeline de ETL robusto, reproduzível e pronto para produção.
+Esta primeira etapa do README documenta a solução para o **Desafio 1** proposto pelo **CB-Lab**, focado na análise, modelagem e transformação de dados provenientes de um endpoint de ERP em um formato relacional otimizado para operações de restaurante. A solução foi desenvolvida com base em boas práticas de engenharia de dados, visando a criação de um pipeline de ETL robusto, reproduzível e pronto para produção.
 
 ---
 
@@ -81,28 +81,42 @@ Para atender à recomendação de um código "confortável para colocar em produ
 
 ---
 
-### Como Executar o Projeto
+## Executando a Solução Completa
 
-Com o Docker e o Docker Compose instalados, a execução do projeto é simples e direta.
+Este projeto foi totalmente containerizado com Docker. Os passos abaixo irão configurar e executar os pipelines para ambos os desafios.
 
-#### Pré-requisitos
+### Pré-requisitos
 
 * Docker
 * Docker Compose
 
-#### Passos para Execução
+### Configuração Inicial
 
-1. Clone este repositório para a sua máquina local.
-2. Abra um terminal na raiz do projeto.
-3. Execute o seguinte comando para construir as imagens e iniciar os contêineres:
+1.  **Clone o Repositório:**
+    Abra um terminal e execute os comandos para clonar o projeto e entrar na pasta.
+    ```bash
+    git clone [https://github.com/MiguelCandido21/Desafio-CBLAB.git](https://github.com/MiguelCandido21/Desafio-CBLAB.git)
+    cd Desafio-CBLAB
+    ```
 
-   ```bash
-   docker-compose up --build
-   ```
-4. O terminal exibirá os logs de ambos os serviços. O script `wait-for-it.sh` aguardará o banco de dados ficar pronto e, em seguida, o script `etl.py` será executado, carregando os dados.
+2.  **Crie o Arquivo de Ambiente (`.env`):**
+    Este arquivo é essencial para as credenciais do MinIO (Desafio 2). Crie um arquivo chamado `.env` na raiz do projeto e copie o conteúdo abaixo.
+    ```env
+    # .env
+    # Credenciais e configurações para conexão com o MinIO
+    MINIO_ENDPOINT=minio:9000
+    MINIO_ACCESS_KEY=minioadmin
+    MINIO_SECRET_KEY=minioadmin
+    DATA_LAKE_BUCKET=raw
+    ```
 
-Após a execução, os dados do `ERP.json` estarão persistidos no banco de dados PostgreSQL.
+### Execução dos Pipelines
 
+Execute o seguinte comando na raiz do projeto. Ele irá construir as imagens Docker e iniciar todos os serviços (PostgreSQL, MinIO e os scripts de ETL).
+
+```bash
+docker-compose up --build
+```
 ---
 
 ### Justificativa da Escolha da Tecnologia: PostgreSQL
@@ -131,6 +145,67 @@ Armazenar as respostas brutas das APIs, o **(raw data)**, é uma prática estrat
 * **Flexibilidade para o Futuro:** Preserva 100% da informação original, habilitando futuras análises de BI e projetos de Machine Learning que ainda não foram previstos.
 * **Arquitetura Desacoplada:** Isola o processo de coleta (ingestão) do processo de consumo (análise), permitindo que as equipes trabalhem de forma independente e mais ágil.
 
+### 2. Como os dados são armazenados?
+
+Para atender aos requisitos de manipulação e performance de busca, foi implementada uma estrutura de pastas particionada. A estrutura de cada objeto salvo no bucket `raw` segue o modelo:
+
+`{endpoint_api}/ano={YYYY}/mes={MM}/dia={DD}/storeId={id_da_loja}/{nome_do_arquivo}.json`
+
+Onde o `nome_do_arquivo` segue o padrão `timestamp_storeId_correlationId.json`.
+
+**Exemplo de um caminho completo:**
+
+`getGuestChecks/ano=2025/mes=07/dia=30/storeId=101/202507302245123456_101_a1b2c3d4-e5f6-7890-1234-567890abcdef.json`
+
+**Justificativa da Estrutura:**
+
+* **Particionamento por Origem (`endpoint_api`):** Isola os dados de cada API, permitindo que as análises sejam focadas em uma única fonte de dados.
+* **Particionamento por Data (`ano`, `mes`, `dia`):** É a otimização mais crítica para performance. Ferramentas de consulta (como Spark, Presto, Athena) podem ignorar grandes volumes de dados, lendo apenas as partições de datas relevantes.
+* **Particionamento por Loja (`storeId`):** Facilita análises e buscas focadas em uma única loja.
+* **Nome do Arquivo Informativo:** O nome do arquivo é único, ordenável por data de ingestão e contém informações que facilitam a depuração e rastreabilidade.
+
+### 3. O que implicaria uma mudança no esquema (Schema Evolution)?
+
+O desafio cita um exemplo onde `guestChecks.taxes` é renomeado para `guestChecks.taxation`.
+
+**Implicação:** Na camada **Raw** do Data Lake, onde este projeto atua, **NÃO POSSUI EFEITO**.
+
+**Explicação:** A camada `raw` deve ser imutável e fiel à origem. Os arquivos JSON são armazenados exatamente como chegaram. A responsabilidade de unificar e tratar essa mudança é de um processo de ETL/ELT posterior, que leria os dados da camada `raw` e os transformaria para uma camada `trusted`, criando uma coluna padronizada que busca o valor de ambos os campos.
+
+---
+
+ **Crie o arquivo de ambiente:** Crie um arquivo chamado `.env` na raiz do projeto e copie o conteúdo abaixo.
+
+   ```env
+   # .env
+   # Credenciais e configurações para conexão com o MinIO
+   MINIO_ENDPOINT=minio:9000
+   MINIO_ACCESS_KEY=minioadmin
+   MINIO_SECRET_KEY=minioadmin
+   DATA_LAKE_BUCKET=raw
+   ```
+
+### Execução do Desafio 2
+
+1. **Inicie os serviços:** Execute o seguinte comando para construir as imagens e iniciar os contêineres(isso se tiver limpado ou parado a execuçao do Desafio 1).
+   ```bash
+   docker-compose up --build
+   ```
+  rodar em outro terminal `python ingestao_api.py` e a aplicação será iniciada, executará o script `ingestao_api.py` para popular o Data Lake e depois será finalizado.
+
+### Verificação
+
+1. **Acesse o Console do MinIO:** Abra seu navegador e vá para `http://localhost:9001`.
+2. **Login:** Use as credenciais do arquivo `.env` (usuário: `minioadmin`, senha: `minioadmin`).
+3. **Navegue:** Vá até **Buckets -> raw** e explore a estrutura de pastas particionada para ver os arquivos JSON que foram criados.
+
+### Limpeza do Ambiente
+
+Para parar os serviços e remover todos os dados do MinIO (limpeza completa), execute:
+
+```bash
+docker-compose down -v
+---
 
 > Desenvolvido por: **Miguel Candido**
 ```
