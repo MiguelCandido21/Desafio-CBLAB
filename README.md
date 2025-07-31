@@ -29,7 +29,7 @@ O arquivo `ERP.json` estrutura-se em um aninhamento que reflete a complexidade d
 
 ---
 
-### Modelagem Relacional e Normalização
+### Modelagem e Normalização
 
 A transformação do JSON para um modelo relacional seguiu os princípios de normalização de dados para garantir a integridade, evitar redundância e otimizar a performance das consultas. A abordagem adotada foi a seguinte:
 
@@ -52,8 +52,15 @@ O modelo final é composto pelas seguintes entidades principais, utilizando `cam
 
 Este design assegura que as operações de `INSERT`, `UPDATE` e `DELETE` sejam realizadas de forma atômica e consistente.
 
-➡️ Para uma descrição detalhada de cada tabela e atributo, consulte o arquivo **[`dicionario-de-dados.md`](./dicionario-de-dados.md)**.
+*➡️ Para uma descrição detalhada de cada tabela e atributo, consulte o arquivo **[`dicionario-de-dados.md`](./dicionario-de-dados.md)**.*
 ➡️ O script de criação do banco de dados está disponível em **[`sql/schema.sql`](./sql/schema.sql)**.
+
+➡️ **Visualização da Modelagem de Dados**
+
+Para uma análise detalhada da estrutura relacional, os modelos de dados (conceitual e lógico) estão disponíveis na raiz do projeto. Eles foram salvos em dois formatos para facilitar o acesso:
+
+* **Imagens (`.jpg`)**: Para uma visualização rápida e direta no navegador ou em qualquer visualizador de imagens, utilize os arquivos `view_modelo_conceitual.jpg` e `view_modelo_logico.jpg`.
+* **Arquivos do brModelo (`.brM3`)**: Para explorar, editar ou ver os detalhes técnicos completos da modelagem, os arquivos `modelo_conceitual.brM3` e `modelo_logico.brM3` podem ser abertos com a ferramenta gratuita [brModelo3](http://www.brmodelo.com.br/).
 
 ---
 
@@ -206,6 +213,6 @@ Para parar os serviços e remover todos os dados do MinIO (limpeza completa), ex
 ```bash
 docker-compose down -v
 ---
-
-> Desenvolvido por: **Miguel Candido**
 ```
+> Desenvolvido por: **Miguel Candido**
+
