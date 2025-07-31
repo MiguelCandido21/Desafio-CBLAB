@@ -115,6 +115,7 @@ A escolha do **PostgreSQL** foi fundamentada em pilares técnicos que o tornam i
 * **Ecossistema e Maturidade**: Vasta documentação, uma comunidade ativa e excelente compatibilidade com ferramentas de BI e ETL.
 
 ---
+
 ## Desafio 2: Arquitetura de Data Lake para Business Intelligence
 
 ### Introdução
@@ -126,12 +127,10 @@ O objetivo deste desafio é projetar a arquitetura de um Data Lake para armazena
 Armazenar as respostas brutas das APIs, o **(raw data)**, é uma prática estratégica que transforma dados voláteis em um ativo corporativo permanente e confiável. Os principais motivos são:
 
 * **Fonte da Verdade:** O `raw data` é a cópia fiel e imutável do dado na origem, garantindo consistência e uma base auditável para todas as análises.
-
-* **Resiliência e Reprocessamento:** Permite que pipelines de dados sejam reexecutados para corrigir falhas ou aplicar novas regras de negócio, sem depender de APIs externas que podem se tornar indisponíveis.
-
+* **Reprocessamento:** Permite que pipelines de dados sejam reexecutados para corrigir falhas ou aplicar novas regras de negócio, sem depender de APIs externas que podem se tornar indisponíveis.
 * **Flexibilidade para o Futuro:** Preserva 100% da informação original, habilitando futuras análises de BI e projetos de Machine Learning que ainda não foram previstos.
-
 * **Arquitetura Desacoplada:** Isola o processo de coleta (ingestão) do processo de consumo (análise), permitindo que as equipes trabalhem de forma independente e mais ágil.
----
+
 
 > Desenvolvido por: **Miguel Candido**
+```

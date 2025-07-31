@@ -1,5 +1,3 @@
-# etl.py
-
 import json
 import pandas as pd
 from sqlalchemy import create_engine
@@ -19,13 +17,11 @@ def transform_data(data):
         print("Aviso: Nenhuma comanda ('guestChecks') encontrada no arquivo JSON.")
         return None
 
-    # --- Camada de Normalização Bruta ---
     df_metadata = pd.DataFrame([{'curUTC': data['curUTC'], 'locRef': data['locRef']}])
     df_guest_checks_full = pd.json_normalize(all_guest_checks_raw)
     df_taxes_full = pd.json_normalize(all_guest_checks_raw, record_path=['taxes'], meta=['guestCheckId'], errors='ignore')
     df_detail_lines_full = pd.json_normalize(all_guest_checks_raw, record_path=['detailLines'], meta=['guestCheckId'], errors='ignore')
 
-    # --- Preparação das Tabelas Finais (Mantendo Nomes Originais) ---
     df_ErpMetadata = df_metadata.reindex(columns=['curUTC', 'locRef'])
     df_employee = pd.DataFrame(df_guest_checks_full[['empNum']].drop_duplicates()) if 'empNum' in df_guest_checks_full else pd.DataFrame(columns=['empNum'])
     
@@ -89,13 +85,11 @@ def load_data(dataframes):
             print("Conexão e transação iniciadas.")
             for table_name in load_order:
                 df = dataframes.get(table_name)
-                # vvvv MUDANÇA PRINCIPAL AQUI vvvv
                 if df is not None and not df.empty:
                     print(f"Carregando dados na tabela: {db_schema}.{table_name}...")
                     df.to_sql(table_name, connection, schema=db_schema, if_exists='append', index=False)
                     print(f"-> SUCESSO: {len(df)} linhas inseridas em {table_name}.")
                 else:
-                    # Log explícito para tabelas sem dados
                     print(f"Nenhum dado encontrado para a tabela {table_name}. Nenhuma linha inserida.")
             print("COMMIT realizado.")
     except Exception as e:

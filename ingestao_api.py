@@ -3,9 +3,12 @@ import json
 from datetime import datetime, timedelta
 import uuid
 import random
+import boto3
+from botocore.exceptions import ClientError
+from dotenv import load_dotenv
 
-# --- Configuração ---
-# Lista dos 5 endpoints de API mencionados no desafio.
+load_dotenv()
+
 ENDPOINTS_API = [
     "getFiscalInvoice",
     "getGuestChecks",
@@ -13,14 +16,51 @@ ENDPOINTS_API = [
     "getTransactions",
     "getCashManagementDetails"
 ]
-
-# Lista de lojas para simular a ingestão.
 LOJAS = ["101", "102", "103"]
 
-# Diretório base para o nosso Data Lake local.
-DATA_LAKE_BASE_DIR = "data_lake"
+MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT")
+MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY")
+MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY")
+DATA_LAKE_BUCKET = os.getenv("DATA_LAKE_BUCKET")
+AWS_REGION = "us-east-1"
 
-# --- Funções de Simulação de Dados ---
+def inicializar_s3_client():
+    """Inicializa e retorna o cliente S3 (boto3) para o MinIO."""
+    try:
+        client = boto3.client(
+            's3',
+            endpoint_url=f"http://{MINIO_ENDPOINT}",
+            aws_access_key_id=MINIO_ACCESS_KEY,
+            aws_secret_access_key=MINIO_SECRET_KEY,
+            region_name=AWS_REGION
+        )
+        client.list_buckets()
+        print("Conexão com o MinIO (via Boto3) estabelecida com sucesso.")
+        return client
+    except Exception as e:
+        print(f"Erro ao conectar com o MinIO (via Boto3): {e}")
+        return None
+
+def garantir_criacao_bucket(client, bucket_name: str):
+    """Verifica se um bucket existe e o cria caso não exista, usando boto3."""
+    if not client:
+        print("Cliente S3 não inicializado. Impossível criar o bucket.")
+        return
+    try:
+        client.head_bucket(Bucket=bucket_name)
+        print(f"Bucket '{bucket_name}' já existe.")
+    except ClientError as e:
+        error_code = e.response['Error']['Code']
+        if error_code == '404':
+            print(f"Bucket '{bucket_name}' não encontrado. Criando...")
+            try:
+                client.create_bucket(Bucket=bucket_name)
+                print(f"Bucket '{bucket_name}' criado com sucesso.")
+            except ClientError as creation_error:
+                print(f"Erro ao criar o bucket: {creation_error}")
+        else:
+            print(f"Erro ao verificar o bucket: {e}")
+
 
 def _gerar_dados_fiscais(store_id, data_negocio):
     """Gera um exemplo de nota fiscal."""
@@ -41,7 +81,6 @@ def _gerar_comandas(store_id, data_negocio):
             "quantity": random.randint(1, 3),
             "price": round(random.uniform(15.0, 120.0), 2)
         })
-    
     comanda = {
         "guestCheckId": str(uuid.uuid4()),
         "storeId": store_id,
@@ -49,13 +88,10 @@ def _gerar_comandas(store_id, data_negocio):
         "detailLines": itens,
         "total": sum(item['price'] * item['quantity'] for item in itens)
     }
-    
-    # Simula a evolução do schema: algumas comandas usam 'taxes', outras 'taxation'
     if int(store_id) % 2 == 0:
         comanda["taxes"] = round(comanda["total"] * 0.1, 2)
     else:
         comanda["taxation"] = round(comanda["total"] * 0.1, 2)
-        
     return comanda
 
 def _gerar_chargebacks(store_id, data_negocio):
@@ -90,13 +126,8 @@ def _gerar_detalhes_caixa(store_id, data_negocio):
     }
 
 def simular_chamada_api(api_name, data_negocio, store_id):
-    """
-    Simula a chamada de uma API e retorna um JSON de exemplo mais realista.
-    No mundo real, esta função conteria a lógica para fazer uma requisição HTTP.
-    """
+    """Simula a chamada de uma API e retorna um JSON de exemplo."""
     print(f"Simulando chamada para API '{api_name}' para a loja {store_id} na data {data_negocio}...")
-    
-    # Mapeia o nome da API para a função que gera os dados correspondentes
     geradores_de_dados = {
         "getFiscalInvoice": _gerar_dados_fiscais,
         "getGuestChecks": _gerar_comandas,
@@ -104,88 +135,69 @@ def simular_chamada_api(api_name, data_negocio, store_id):
         "getTransactions": _gerar_transacoes,
         "getCashManagementDetails": _gerar_detalhes_caixa
     }
-
-    # Seleciona a função geradora correta
     funcao_geradora = geradores_de_dados.get(api_name)
-    
     if not funcao_geradora:
         return None
-
-    # Gera uma lista de dados, simulando que a API pode retornar múltiplos registros
     dados_gerados = [funcao_geradora(store_id, data_negocio) for _ in range(random.randint(5, 20))]
-
-    # Monta a resposta final no padrão da API
-    dados_mock = {
-        "metadata": {
-            "api_endpoint": api_name,
-            "timestamp_request": datetime.now().isoformat(),
-            "correlation_id": str(uuid.uuid4())
-        },
-        "payload": {
-            "busDt": data_negocio,
-            "storeId": store_id,
-            "data": dados_gerados
-        }
+    return {
+        "metadata": { "api_endpoint": api_name, "timestamp_request": datetime.now().isoformat(), "correlation_id": str(uuid.uuid4()) },
+        "payload": { "busDt": data_negocio, "storeId": store_id, "data": dados_gerados }
     }
-    
-    return dados_mock
 
-def salvar_no_data_lake(api_name, data_negocio_dt, store_id, dados_json):
-    """
-    Salva os dados JSON na estrutura de pastas particionada do Data Lake.
-    """
-    # Extrai ano, mês e dia da data para criar as partições
+
+def salvar_no_data_lake(client, api_name, data_negocio_dt, store_id, dados_json, correlation_id):
+    """Salva os dados JSON no MinIO usando um nome de arquivo robusto e informativo."""
+    if not client:
+        print("ERRO: Cliente S3 não inicializado. Abortando upload.")
+        return
+
     ano = data_negocio_dt.strftime("%Y")
     mes = data_negocio_dt.strftime("%m")
     dia = data_negocio_dt.strftime("%d")
 
-    # Monta o caminho do diretório particionado
     caminho_particao = os.path.join(
-        DATA_LAKE_BASE_DIR, "raw", api_name,
-        f"ano={ano}", f"mes={mes}", f"dia={dia}", f"storeId={store_id}"
+        api_name, f"ano={ano}", f"mes={mes}", f"dia={dia}", f"storeId={store_id}"
     )
-
-    # Cria os diretórios se eles não existirem
-    os.makedirs(caminho_particao, exist_ok=True)
-
-    # Gera um nome de arquivo único usando timestamp e UUID
-    timestamp_arquivo = datetime.now().strftime("%Y%m%d%H%M%S")
-    id_unico = uuid.uuid4()
-    nome_arquivo = f"{timestamp_arquivo}_{id_unico}.json"
     
-    caminho_completo_arquivo = os.path.join(caminho_particao, nome_arquivo)
+    timestamp_arquivo = datetime.now().strftime("%Y%m%d%H%M%S%f")
+    nome_arquivo = f"{timestamp_arquivo}_{store_id}_{correlation_id}.json"
+    
+    caminho_completo_objeto = os.path.join(caminho_particao, nome_arquivo)
 
-    # Salva o arquivo JSON
+    json_bytes = json.dumps(dados_json, ensure_ascii=False, indent=4).encode('utf-8')
+
     try:
-        with open(caminho_completo_arquivo, 'w', encoding='utf-8') as f:
-            json.dump(dados_json, f, ensure_ascii=False, indent=4)
-        print(f"Dados salvos com sucesso em: {caminho_completo_arquivo}\n")
-    except IOError as e:
-        print(f"ERRO: Não foi possível salvar o arquivo {caminho_completo_arquivo}. Erro: {e}\n")
+        client.put_object(
+            Bucket=DATA_LAKE_BUCKET,
+            Key=caminho_completo_objeto,
+            Body=json_bytes,
+            ContentType='application/json'
+        )
+        print(f"Dados salvos com sucesso em: s3://{DATA_LAKE_BUCKET}/{caminho_completo_objeto}\n")
+    except ClientError as e:
+        print(f"ERRO: Não foi possível salvar o objeto no MinIO. Erro: {e}\n")
 
-# --- Execução Principal ---
 
 def main():
-    """
-    Função principal que orquestra o processo de ingestão.
-    """
-    print("--- Iniciando Pipeline de Ingestão para o Data Lake ---")
+    """Função principal que orquestra o processo de ingestão."""
+    s3_client = inicializar_s3_client()
     
-    # Usa a data de hoje como data de negócio para a simulação
+    garantir_criacao_bucket(s3_client, DATA_LAKE_BUCKET)
+    
+    print("\n--- Iniciando Pipeline de Ingestão para o Data Lake (MinIO com Boto3) ---")
     data_de_negocio_dt = datetime.now()
     data_de_negocio_str = data_de_negocio_dt.strftime("%Y-%m-%d")
 
     for loja_id in LOJAS:
         print(f"--- Processando dados para a Loja ID: {loja_id} ---")
         for endpoint in ENDPOINTS_API:
-            # 1. Busca os dados (simulação)
             dados = simular_chamada_api(endpoint, data_de_negocio_str, loja_id)
-            
-            # 2. Salva no Data Lake
             if dados:
-                salvar_no_data_lake(endpoint, data_de_negocio_dt, loja_id, dados)
+                correlation_id = dados['metadata']['correlation_id']
+                salvar_no_data_lake(s3_client, endpoint, data_de_negocio_dt, loja_id, dados, correlation_id)
 
     print("--- Processo de ingestão finalizado com sucesso. ---")
+
 
 if __name__ == "__main__":
     main()
